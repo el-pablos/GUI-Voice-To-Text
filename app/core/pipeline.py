@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -108,12 +109,19 @@ def run_pipeline(
     if not is_supported(input_path):
         raise ValueError(f"Format file tidak didukung: {input_path.suffix}")
 
+    pipeline_start = time.time()
+    file_size = input_path.stat().st_size if input_path.exists() else 0
+    logger.info(
+        "Pipeline mulai: %s (%.1f MB)",
+        input_path.name, file_size / (1024 * 1024),
+    )
     _notify(progress_callback, "Memulai...", 0.0)
 
     # Step 1: Hash file
     _notify(progress_callback, "Menghitung hash file...", 0.05)
+    t0 = time.time()
     file_hash = hash_file(input_path)
-    logger.info("File hash: %s", file_hash[:16])
+    logger.info("File hash: %s (%.1fs)", file_hash[:16], time.time() - t0)
 
     # Step 2: Cache check
     ck = cache_key(file_hash, language, model_size, diarization_mode != "none")
@@ -133,10 +141,18 @@ def run_pipeline(
         if input_path.suffix.lower() == ".wav":
             wav_path = input_path
             temp_wav = None
+            logger.info("Input sudah WAV, skip konversi")
         else:
             temp_dir = tempfile.mkdtemp(prefix="transkrip_")
             wav_path = Path(temp_dir) / "converted.wav"
-            wav_path = convert_to_wav(input_path, wav_path)
+
+            def _conv_progress(pct: float) -> None:
+                p = 0.15 + pct * 0.10  # Map ke range 0.15 – 0.25
+                _notify(progress_callback, f"Mengkonversi audio... {int(pct * 100)}%", p)
+
+            t0 = time.time()
+            wav_path = convert_to_wav(input_path, wav_path, progress_callback=_conv_progress)
+            logger.info("Konversi selesai dalam %.1fs", time.time() - t0)
             temp_wav = wav_path
 
         # Step 4: Probe durasi
@@ -149,18 +165,39 @@ def run_pipeline(
         _notify(progress_callback, "Mentranskrip audio...", 0.25)
         if engine is None:
             engine = _get_default_engine()
+        logger.info("Engine: %s, model: %s, bahasa: %s", engine.name, model_size, language)
 
-        file_size = input_path.stat().st_size if input_path.exists() else 0
         if should_chunk(duration, file_size):
             # ── Chunking path ────────────────────────
-            logger.info("File panjang (%.1f detik) — pakai chunking", duration)
+            logger.info(
+                "File panjang (%.1f detik / %.1f menit) — pakai chunking",
+                duration, duration / 60,
+            )
+            t0 = time.time()
             chunks = iterate_audio_chunks(wav_path, total_duration=duration)
+            logger.info("Dibuat %d chunk dalam %.1fs", len(chunks), time.time() - t0)
             all_segments: list[Segment] = []
             total_chunks = len(chunks) if chunks else 1
 
+            chunk_start_time = time.time()
             for ci, chunk_path in enumerate(chunks):
                 chunk_progress = 0.25 + (ci / total_chunks) * 0.40
-                _notify(progress_callback, f"Transkrip chunk {ci + 1}/{total_chunks}...", chunk_progress)
+
+                # ETA estimation
+                eta_str = ""
+                if ci > 0:
+                    elapsed_so_far = time.time() - chunk_start_time
+                    per_chunk = elapsed_so_far / ci
+                    remaining = per_chunk * (total_chunks - ci)
+                    eta_str = f" — ETA: {_format_duration(remaining)}"
+
+                _notify(
+                    progress_callback,
+                    f"Transkrip chunk {ci + 1}/{total_chunks}...{eta_str}",
+                    chunk_progress,
+                )
+                logger.info("Chunk %d/%d: mulai transkrip...", ci + 1, total_chunks)
+                t_chunk = time.time()
 
                 # Check cache per chunk
                 chunk_ck = cache_key(file_hash + f"_chunk{ci}", language, model_size, diarization_mode != "none")
@@ -168,6 +205,7 @@ def run_pipeline(
 
                 if chunk_cached:
                     chunk_result = TranscriptResult.from_dict(chunk_cached)
+                    logger.info("Chunk %d/%d: cache hit", ci + 1, total_chunks)
                 else:
                     chunk_result = engine.transcribe(
                         audio_path=str(chunk_path),
@@ -176,6 +214,11 @@ def run_pipeline(
                     )
                     if use_cache:
                         set_cache(chunk_ck, chunk_result.to_dict())
+                    logger.info(
+                        "Chunk %d/%d: selesai dalam %.1fs (%d segmen)",
+                        ci + 1, total_chunks, time.time() - t_chunk,
+                        len(chunk_result.segments),
+                    )
 
                 # Offset segment timestamps sesuai posisi chunk
                 from app.core.chunking import DEFAULT_CHUNK_SECONDS
@@ -186,6 +229,11 @@ def run_pipeline(
                     all_segments.append(seg)
 
             cleanup_chunks(chunks)
+            total_transcribe_time = time.time() - chunk_start_time
+            logger.info(
+                "Semua %d chunk selesai dalam %.1fs (total %d segmen)",
+                total_chunks, total_transcribe_time, len(all_segments),
+            )
 
             result = TranscriptResult(
                 segments=all_segments,
@@ -196,10 +244,16 @@ def run_pipeline(
             )
         else:
             # ── Normal path (file pendek) ────────────
+            logger.info("Mulai transkrip (file pendek, tanpa chunking)")
+            t0 = time.time()
             result = engine.transcribe(
                 audio_path=str(wav_path),
                 language=language,
                 model_size=model_size,
+            )
+            logger.info(
+                "Transkrip selesai dalam %.1fs (%d segmen)",
+                time.time() - t0, len(result.segments),
             )
 
         if duration > 0 and result.duration == 0:
@@ -250,6 +304,11 @@ def run_pipeline(
     # Generate preview text (TXT bersih)
     preview_text = result.full_text
 
+    total_elapsed = time.time() - pipeline_start
+    logger.info(
+        "Pipeline selesai: %s — %.1fs total, %d segmen, %d file export",
+        input_path.name, total_elapsed, len(result.segments), len(exported_files),
+    )
     _notify(progress_callback, "Selesai!", 1.0)
 
     return {
@@ -297,6 +356,17 @@ def run_batch(
             results.append({"input": str(f), "error": str(e)})
 
     return results
+
+
+def _format_duration(seconds: float) -> str:
+    """Format durasi ke string human-readable."""
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    m, s = divmod(int(seconds), 60)
+    if m < 60:
+        return f"{m}m {s:02d}s"
+    h, m = divmod(m, 60)
+    return f"{h}h {m:02d}m"
 
 
 def _notify(callback: Callable[[str, float], None] | None, stage: str, progress: float) -> None:

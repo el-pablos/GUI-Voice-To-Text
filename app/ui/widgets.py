@@ -279,34 +279,57 @@ class PreviewPanel(QWidget):
 # Progress Panel — progress bar + stage info
 # ────────────────────────────────────────────────────────────────
 class ProgressPanel(QGroupBox):
-    """Panel progress bar + info stage."""
+    """Panel progress bar + info stage + elapsed time."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Progress", parent)
         layout = QVBoxLayout(self)
 
+        # Stage + elapsed time row
+        info_row = QHBoxLayout()
         self.stage_label = QLabel("Siap")
-        layout.addWidget(self.stage_label)
+        info_row.addWidget(self.stage_label)
+        info_row.addStretch()
+        self.elapsed_label = QLabel("")
+        self.elapsed_label.setStyleSheet("color: #888; font-size: 11px;")
+        info_row.addWidget(self.elapsed_label)
+        layout.addLayout(info_row)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("%p%")
         layout.addWidget(self.progress_bar)
+
+        # Detail label for sub-stage info
+        self.detail_label = QLabel("")
+        self.detail_label.setStyleSheet("color: #999; font-size: 10px;")
+        layout.addWidget(self.detail_label)
 
     def update_progress(self, stage: str, progress: float) -> None:
         self.stage_label.setText(stage)
         self.progress_bar.setValue(int(progress * 100))
 
+    def set_elapsed(self, text: str) -> None:
+        """Update elapsed time display."""
+        self.elapsed_label.setText(text)
+
+    def set_detail(self, text: str) -> None:
+        """Update detail/sub-stage text."""
+        self.detail_label.setText(text)
+
     def reset(self) -> None:
         self.stage_label.setText("Siap")
         self.progress_bar.setValue(0)
+        self.elapsed_label.setText("")
+        self.detail_label.setText("")
 
 
 # ────────────────────────────────────────────────────────────────
 # Log Panel — log output
 # ────────────────────────────────────────────────────────────────
 class LogPanel(QWidget):
-    """Panel log output (tanpa group border, langsung embed di tab)."""
+    """Panel log output dengan timestamp, level colors, dan auto-scroll."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -315,10 +338,45 @@ class LogPanel(QWidget):
 
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
+        self.log_text.setStyleSheet(
+            "font-family: 'Consolas', 'Courier New', monospace; font-size: 11px;"
+        )
         layout.addWidget(self.log_text)
 
-    def append_log(self, message: str) -> None:
-        self.log_text.append(message)
+        # Bottom buttons
+        btn_row = QHBoxLayout()
+        btn_clear = QPushButton("🗑️ Clear Log")
+        btn_clear.setFixedWidth(100)
+        btn_clear.clicked.connect(lambda: self.log_text.clear())
+        btn_row.addWidget(btn_clear)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+    def append_log(self, message: str, level: str = "INFO") -> None:
+        """Append log message with timestamp and color coding."""
+        from datetime import datetime
+
+        ts = datetime.now().strftime("%H:%M:%S")
+        colors = {
+            "DEBUG": "#888888",
+            "INFO": "#cccccc",
+            "WARNING": "#f0ad4e",
+            "ERROR": "#d9534f",
+            "CRITICAL": "#d9534f",
+            "SUCCESS": "#5cb85c",
+        }
+        color = colors.get(level, "#cccccc")
+        level_short = level[:4].ljust(4)
+        html = (
+            f'<span style="color:#666">[{ts}]</span> '
+            f'<span style="color:{color}">[{level_short}]</span> '
+            f'<span style="color:{color}">{message}</span>'
+        )
+        self.log_text.append(html)
+
+        # Auto-scroll to bottom
+        scrollbar = self.log_text.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
 
 
 # ────────────────────────────────────────────────────────────────

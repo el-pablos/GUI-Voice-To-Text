@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 # Ekstensi yang didukung
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".mpeg", ".mpga"}
@@ -103,6 +107,7 @@ def convert_to_wav(
     output_path: str | Path | None = None,
     sample_rate: int = DEFAULT_SAMPLE_RATE,
     channels: int = DEFAULT_CHANNELS,
+    progress_callback: Callable[[float], None] | None = None,
 ) -> Path:
     """Convert file audio/video ke WAV standar untuk STT engine.
 
@@ -111,6 +116,7 @@ def convert_to_wav(
         output_path: Path output WAV. Jika None, auto-generate di folder yang sama.
         sample_rate: Sample rate output (default 16000).
         channels: Jumlah channel (default 1 = mono).
+        progress_callback: Callback(pct: 0.0-1.0) untuk progress konversi.
 
     Returns:
         Path ke file WAV hasil konversi.
@@ -131,17 +137,7 @@ def convert_to_wav(
     # Pastikan folder output ada
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd = [
-        ffmpeg,
-        "-y",  # overwrite tanpa tanya
-        "-i", str(input_path),
-        "-ar", str(sample_rate),
-        "-ac", str(channels),
-        "-c:a", "pcm_s16le",
-        str(output_path),
-    ]
-
-    # Timeout dinamis berdasarkan durasi file, biar file panjang ga keputus
+    # Probe durasi untuk timeout dan progress
     try:
         duration = probe_duration(input_path)
     except Exception:
@@ -150,12 +146,63 @@ def convert_to_wav(
     if duration > 0:
         timeout_seconds = max(600, int(duration * 3) + 120)
     else:
-        # Fallback besar (6 jam) kalau durasi ga bisa dideteksi
         timeout_seconds = 21600
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds)
-    if result.returncode != 0:
-        raise RuntimeError(f"FFmpeg convert gagal: {result.stderr[:500]}")
+    file_size = input_path.stat().st_size if input_path.exists() else 0
+    logger.info(
+        "Konversi %s → WAV (durasi=%.1fs, ukuran=%.1f MB)",
+        input_path.name, duration, file_size / (1024 * 1024),
+    )
+
+    base_cmd = [
+        ffmpeg, "-y", "-i", str(input_path),
+        "-ar", str(sample_rate), "-ac", str(channels),
+        "-c:a", "pcm_s16le",
+    ]
+
+    start_time = time.time()
+
+    if progress_callback and duration > 0:
+        # Popen + -progress pipe:1 untuk real-time progress
+        cmd = [*base_cmd, "-progress", "pipe:1", "-nostats", str(output_path)]
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        total_us = int(duration * 1_000_000)
+
+        try:
+            for raw_line in process.stdout:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if line.startswith("out_time_us="):
+                    try:
+                        current_us = int(line.split("=", 1)[1])
+                        if current_us > 0:
+                            pct = min(current_us / total_us, 1.0)
+                            progress_callback(pct)
+                    except (ValueError, IndexError):
+                        pass
+
+            process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            raise RuntimeError(f"FFmpeg convert timeout setelah {timeout_seconds}s")
+
+        if process.returncode != 0:
+            stderr_text = process.stderr.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"FFmpeg convert gagal: {stderr_text[:500]}")
+
+        progress_callback(1.0)
+    else:
+        # Blocking path (tanpa progress callback / durasi tidak diketahui)
+        cmd = [*base_cmd, str(output_path)]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds)
+        if result.returncode != 0:
+            raise RuntimeError(f"FFmpeg convert gagal: {result.stderr[:500]}")
+
+    elapsed = time.time() - start_time
+    out_size = output_path.stat().st_size if output_path.exists() else 0
+    logger.info(
+        "Konversi selesai dalam %.1fs → %s (%.1f MB)",
+        elapsed, output_path.name, out_size / (1024 * 1024),
+    )
 
     return output_path
 
