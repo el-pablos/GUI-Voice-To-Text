@@ -11,7 +11,16 @@ logger = logging.getLogger(__name__)
 
 
 class FasterWhisperEngine(BaseEngine):
-    """STT engine menggunakan faster-whisper (Whisper via CTranslate2)."""
+    """STT engine menggunakan faster-whisper (Whisper via CTranslate2).
+
+    Model di-load sekali (lazy init) dan di-reuse supaya ga reload tiap chunk.
+    """
+
+    def __init__(self) -> None:
+        self._model: Any = None
+        self._loaded_model_size: str = ""
+        self._loaded_device: str = ""
+        self._loaded_compute_type: str = ""
 
     @property
     def name(self) -> str:
@@ -26,6 +35,28 @@ class FasterWhisperEngine(BaseEngine):
         except ImportError:
             return False
 
+    def _get_model(self, model_size: str, device: str = "cpu", compute_type: str = "int8") -> Any:
+        """Lazy load model — reuse kalau config sama."""
+        if (
+            self._model is not None
+            and self._loaded_model_size == model_size
+            and self._loaded_device == device
+            and self._loaded_compute_type == compute_type
+        ):
+            return self._model
+
+        try:
+            from faster_whisper import WhisperModel
+        except ImportError as e:
+            raise ImportError("faster-whisper belum terinstall. Jalankan: pip install faster-whisper") from e
+
+        logger.info("Loading model faster-whisper '%s' (device=%s, compute=%s)...", model_size, device, compute_type)
+        self._model = WhisperModel(model_size, device=device, compute_type=compute_type)
+        self._loaded_model_size = model_size
+        self._loaded_device = device
+        self._loaded_compute_type = compute_type
+        return self._model
+
     def transcribe(
         self,
         audio_path: str,
@@ -39,21 +70,15 @@ class FasterWhisperEngine(BaseEngine):
             audio_path: Path ke file WAV.
             language: Kode bahasa (misal 'id', 'en').
             model_size: Model size (tiny/base/small/medium/large-v3).
-            **kwargs: beam_size, vad_filter, dll.
+            **kwargs: beam_size, vad_filter, device, compute_type, dll.
 
         Returns:
             TranscriptResult.
         """
-        try:
-            from faster_whisper import WhisperModel
-        except ImportError as e:
-            raise ImportError("faster-whisper belum terinstall. Jalankan: pip install faster-whisper") from e
-
-        logger.info("Loading model faster-whisper '%s'...", model_size)
         device = kwargs.get("device", "cpu")
         compute_type = kwargs.get("compute_type", "int8")
 
-        model = WhisperModel(model_size, device=device, compute_type=compute_type)
+        model = self._get_model(model_size, device, compute_type)
 
         logger.info("Mulai transkrip '%s' (bahasa=%s)...", audio_path, language)
         beam_size = kwargs.get("beam_size", 5)
