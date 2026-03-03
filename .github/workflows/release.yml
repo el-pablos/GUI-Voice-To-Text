@@ -68,13 +68,7 @@ jobs:
 
       - name: Build EXE with PyInstaller
         run: |
-          pyinstaller --onefile --noconsole --name GUIVoiceToText --icon app/resources/icon.ico --add-data "app;app" --hidden-import PySide6 --hidden-import faster_whisper --hidden-import redis --hidden-import docx app/main.py
-        continue-on-error: true
-
-      - name: Build EXE (fallback tanpa icon)
-        if: failure() || !hashFiles('dist/GUIVoiceToText.exe')
-        run: |
-          pyinstaller --onefile --noconsole --name GUIVoiceToText --add-data "app;app" --hidden-import PySide6 --hidden-import faster_whisper --hidden-import redis --hidden-import docx app/main.py
+          pyinstaller GUIVoiceToText.spec
 
       - name: Create ZIP & SHA256
         shell: pwsh

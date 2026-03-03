@@ -19,8 +19,16 @@ from app.core.ffmpeg import (
     probe_duration,
 )
 
-HAS_FFMPEG = shutil.which("ffmpeg") is not None
-skip_no_ffmpeg = pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg tidak tersedia di PATH")
+HAS_FFMPEG = find_ffmpeg() is not None
+skip_no_ffmpeg = pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg tidak tersedia")
+
+# Path ke fixture MPEG
+FIXTURE_SIDANG = Path("tests/fixtures/sidang_masukan.mpeg")
+FIXTURE_JERNIH = Path("tests/fixtures/versi_jernih.mpeg")
+HAS_MPEG_FIXTURES = FIXTURE_SIDANG.exists() and FIXTURE_JERNIH.exists()
+skip_no_mpeg = pytest.mark.skipif(
+    not HAS_MPEG_FIXTURES, reason="fixture MPEG tidak ada (file besar, tidak di-commit)"
+)
 
 
 class TestFindFFmpeg:
@@ -54,7 +62,7 @@ class TestFindFFprobe:
 class TestIsSupported:
     @pytest.mark.parametrize(
         "ext",
-        [".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".mp4", ".mkv", ".mov", ".avi", ".webm"],
+        [".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".mpeg", ".mpga", ".mp4", ".mkv", ".mov", ".avi", ".webm"],
     )
     def test_supported_extensions(self, ext: str) -> None:
         assert is_supported(f"file{ext}")
@@ -102,3 +110,51 @@ class TestConvert:
         with patch("app.core.ffmpeg.find_ffmpeg", return_value=None):
             with pytest.raises(FileNotFoundError):
                 convert_to_wav(f)
+
+
+class TestMpegSupport:
+    """Integration test untuk file MPEG asli.
+
+    File fixture besar (~35-90 MB) tidak di-push ke GitHub.
+    Test ini akan di-skip otomatis jika fixture tidak ada.
+    """
+
+    def test_mpeg_is_supported(self) -> None:
+        """Format .mpeg harus dikenali sebagai supported."""
+        assert is_supported("audio.mpeg")
+        assert is_supported("audio.mpga")
+        assert is_supported("rekaman.MPEG")
+
+    @skip_no_ffmpeg
+    @skip_no_mpeg
+    def test_probe_mpeg_sidang(self) -> None:
+        """Probe durasi sidang_masukan.mpeg (~38 menit)."""
+        dur = probe_duration(FIXTURE_SIDANG)
+        assert dur > 2000, f"Durasi terlalu pendek: {dur}s"
+        assert dur < 3000, f"Durasi terlalu panjang: {dur}s"
+
+    @skip_no_ffmpeg
+    @skip_no_mpeg
+    def test_probe_mpeg_jernih(self) -> None:
+        """Probe durasi versi_jernih.mpeg (~38 menit)."""
+        dur = probe_duration(FIXTURE_JERNIH)
+        assert dur > 2000, f"Durasi terlalu pendek: {dur}s"
+        assert dur < 3000, f"Durasi terlalu panjang: {dur}s"
+
+    @skip_no_ffmpeg
+    @skip_no_mpeg
+    def test_convert_mpeg_to_wav(self, tmp_path: Path) -> None:
+        """Convert versi_jernih.mpeg ke WAV, hasilnya harus valid."""
+        out = convert_to_wav(FIXTURE_JERNIH, tmp_path / "jernih.wav")
+        assert out.exists()
+        assert out.suffix == ".wav"
+        assert out.stat().st_size > 1_000_000, "WAV output terlalu kecil"
+
+    @skip_no_ffmpeg
+    @skip_no_mpeg
+    def test_convert_mpeg_sidang_to_wav(self, tmp_path: Path) -> None:
+        """Convert sidang_masukan.mpeg ke WAV, hasilnya harus valid."""
+        out = convert_to_wav(FIXTURE_SIDANG, tmp_path / "sidang.wav")
+        assert out.exists()
+        assert out.suffix == ".wav"
+        assert out.stat().st_size > 1_000_000, "WAV output terlalu kecil"

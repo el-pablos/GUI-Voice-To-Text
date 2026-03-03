@@ -11,7 +11,6 @@ __pycache__/
 *.egg
 dist/
 build/
-*.spec
 *.manifest
 *.whl
 
@@ -79,6 +78,12 @@ tests/fixtures/*.mkv
 tests/fixtures/*.mov
 tests/fixtures/*.avi
 tests/fixtures/*.webm
+tests/fixtures/*.mpeg
+tests/fixtures/*.mpga
+
+# ---------- MPEG test files besar (root) ----------
+*.mpeg
+*.mpga
 
 # ---------- Output transkrip ----------
 output/
