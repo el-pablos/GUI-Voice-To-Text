@@ -12,7 +12,6 @@ from unittest.mock import patch
 import pytest
 
 from app.core.ffmpeg import (
-    SUPPORTED_EXTENSIONS,
     convert_to_wav,
     find_ffmpeg,
     find_ffprobe,

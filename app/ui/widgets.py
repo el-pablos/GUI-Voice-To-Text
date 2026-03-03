@@ -3,19 +3,16 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QComboBox,
     QCheckBox,
-    QFileDialog,
+    QComboBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QProgressBar,
-    QPushButton,
     QTextEdit,
     QVBoxLayout,
     QWidget,

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 from app.core.hashing import cache_key, hash_file

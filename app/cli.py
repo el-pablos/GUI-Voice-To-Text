@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
 from pathlib import Path
 
-from app.core.ffmpeg import is_supported
 from app.core.pipeline import run_batch, run_pipeline
 
 logger = logging.getLogger(__name__)
@@ -42,7 +40,7 @@ def main(argv: list[str] | None = None) -> None:
         datefmt="%H:%M:%S",
     )
 
-    print(f"🎙️ Transkrip Wawancara — CLI Mode")
+    print("🎙️ Transkrip Wawancara — CLI Mode")
     print(f"   Bahasa: {args.language} | Model: {args.model} | Format: {', '.join(args.format)}")
     print()
 

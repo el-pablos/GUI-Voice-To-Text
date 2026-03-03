@@ -7,11 +7,9 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
 
-from PySide6.QtCore import QThread, Signal, Slot, QObject
+from PySide6.QtCore import QObject, QThread, Signal, Slot
 from PySide6.QtWidgets import (
-    QApplication,
     QFileDialog,
     QHBoxLayout,
     QMainWindow,
