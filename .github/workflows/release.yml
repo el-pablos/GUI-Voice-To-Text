@@ -68,20 +68,20 @@ jobs:
 
       - name: Build EXE with PyInstaller
         run: |
-          pyinstaller --onefile --name TranskripWawancara --icon app/resources/icon.ico --add-data "app;app" --hidden-import PySide6 --hidden-import faster_whisper --hidden-import redis --hidden-import docx app/main.py
+          pyinstaller --onefile --noconsole --name GUIVoiceToText --icon app/resources/icon.ico --add-data "app;app" --hidden-import PySide6 --hidden-import faster_whisper --hidden-import redis --hidden-import docx app/main.py
         continue-on-error: true
 
       - name: Build EXE (fallback tanpa icon)
-        if: failure() || !hashFiles('dist/TranskripWawancara.exe')
+        if: failure() || !hashFiles('dist/GUIVoiceToText.exe')
         run: |
-          pyinstaller --onefile --name TranskripWawancara --add-data "app;app" --hidden-import PySide6 --hidden-import faster_whisper --hidden-import redis --hidden-import docx app/main.py
+          pyinstaller --onefile --noconsole --name GUIVoiceToText --add-data "app;app" --hidden-import PySide6 --hidden-import faster_whisper --hidden-import redis --hidden-import docx app/main.py
 
       - name: Create ZIP & SHA256
         shell: pwsh
         run: |
-          Compress-Archive -Path dist\TranskripWawancara.exe -DestinationPath dist\TranskripWawancara.zip
-          $hash = (Get-FileHash dist\TranskripWawancara.exe -Algorithm SHA256).Hash
-          "$hash  TranskripWawancara.exe" | Out-File dist\TranskripWawancara.sha256 -Encoding utf8
+          Compress-Archive -Path dist\GUIVoiceToText.exe -DestinationPath dist\GUIVoiceToText.zip
+          $hash = (Get-FileHash dist\GUIVoiceToText.exe -Algorithm SHA256).Hash
+          "$hash  GUIVoiceToText.exe" | Out-File dist\GUIVoiceToText.sha256 -Encoding utf8
 
       - name: Create Git Tag
         run: |
@@ -96,24 +96,25 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: "Release ${{ steps.version.outputs.tag }}"
           body: |
-            ## Transkrip Wawancara — Auto Release
+            ## GUI Voice To Text — Auto Release
 
             **Version:** `${{ steps.version.outputs.tag }}`
 
             ### Download
-            - `TranskripWawancara.exe` — Portable Windows 10/11
-            - `TranskripWawancara.zip` — ZIP archive
-            - `TranskripWawancara.sha256` — Checksum SHA256
+            - `GUIVoiceToText.exe` — Portable Windows 10/11 (tanpa console)
+            - `GUIVoiceToText.zip` — ZIP archive
+            - `GUIVoiceToText.sha256` — Checksum SHA256
 
             ### Fitur
-            - 🎙️ Transkrip audio/video ke teks (offline, faster-whisper)
+            - 🎙️ Transkrip audio/video ke TXT bersih (offline, faster-whisper)
             - 📄 Export: TXT, MD, SRT, VTT, JSON, DOCX
             - 🗄️ Redis caching (opsional)
-            - 🖥️ UI desktop + CLI batch mode
+            - 🖥️ GUI desktop modern (dark/light theme) + CLI batch mode
+            - 📂 Support file panjang tanpa limit (chunking otomatis)
           files: |
-            dist/TranskripWawancara.exe
-            dist/TranskripWawancara.zip
-            dist/TranskripWawancara.sha256
+            dist/GUIVoiceToText.exe
+            dist/GUIVoiceToText.zip
+            dist/GUIVoiceToText.sha256
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
